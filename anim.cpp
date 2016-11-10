@@ -7,6 +7,7 @@
 #include <cmath>
 #include <vector>
 #include "sdlglutils.h"
+#include <limits>
 
 #define CELL_GROW_RATE 0.01
 #define STEPS 5
@@ -31,7 +32,7 @@
 #define TPRIMARY_LYSOSOME_MOVE_STEP 60.0
 #define TPRIMARY_LYSOSOME_SIZE_STEP 0.1
 #define TPRIMARY_LYSOSOME_TEXTURE_CHANGE_STEP 2.0
-#define TPRIMARY_LYSOSOME_MAGNIFICATION 8.0
+#define TPRIMARY_LYSOSOME_MAGNIFICATION 1.0
 
 #define NUCLEUS_SECTORS 15
 #define NUCLEUS_RADIUS 1.5
@@ -46,7 +47,9 @@
 #define MITOCHONDRIA_POINTS 30.0
 #define MITOCHONDRIA_RADIUS_X 2.0
 #define MITOCHONDRIA_RADIUS_Y 0.6
-#define TMITOCHONDRIA_CHANGE_STEP 10
+#define TMITOCHONDRIA_CHANGE_STEP 30.0
+#define MITOCHONDRIA_STANDARD_DEVIATION_X 0.0
+#define MITOCHONDRIA_STANDARD_DEVIATION_Y 0.4
 
 #define CAPSULE_DISAPPEAR 2.5
 
@@ -70,7 +73,7 @@ struct _primaryLysosome{
 struct _mitochondria{
    GLfloat x,y,z,theta,xdash,ydash;
    // theta w.r.t x-axis
-   vector<vector<GLfloat>> *ctrlpoints;
+   vector<vector<GLfloat>> *ctrlpoints,*pointsNow,*pointsLater;
 };
 
 vector <_mitochondria> mitochondria(2);
@@ -84,15 +87,15 @@ struct _scale{
 } scale;
 
 float tCell=0.0,tPrimaryLysosome=0.0;
-float tCapsule=0.0,tLysosomeMove=0.0;
-int tMitochondria=0,tLysosomeChange=0;
+float tCapsule=0.0,tLysosomeMove=0.0,tMitochondria=0.0;
+int tLysosomeChange=0;
 
 vector< vector<GLfloat> > *ctrlpoints = new vector< vector <GLfloat> >(CELL_SECTORS+3, vector< GLfloat >(3)); // +4 for duplicate ending points for bsplines; // changes with tCell value as in interpolation
 vector< vector<GLfloat> > *pointsNow = new vector< vector <GLfloat> >(CELL_SECTORS+3, vector< GLfloat >(3)); // cell points in current configuration
 vector< vector<GLfloat> > *pointsLater = new vector< vector <GLfloat> >(CELL_SECTORS+3, vector< GLfloat >(3)); // cell points for next configuration
 
 void getCurvePoints(vector< vector< GLfloat> > *,float, float, float);
-void getMitochondriaPoints(vector< vector< GLfloat> > *,float, float);
+void getMitochondriaPoints(vector< vector< GLfloat> > *,float, float, float, float);
 float getInBetween(float, float);
 void getInterpolatedPointsForCurve(vector< vector < GLfloat > > *,vector< vector < GLfloat > > *,vector< vector < GLfloat > > *);
 void copyCurveConfiguration(vector< vector<GLfloat> > *,vector< vector<GLfloat> > *);
@@ -206,15 +209,20 @@ void init(void)
    for(int i=0;i<mitochondria.size();i++){
       mitochondria.at(i).xdash = mitochondria.at(i).x;
       mitochondria.at(i).ydash = mitochondria.at(i).y;
-      mitochondria.at(i).ctrlpoints = new vector<vector<GLfloat>>(MITOCHONDRIA_POINTS+1,vector<GLfloat>(3));
+      mitochondria.at(i).ctrlpoints = new vector<vector<GLfloat>>(MITOCHONDRIA_POINTS+3,vector<GLfloat>(3));
+      mitochondria.at(i).pointsNow = new vector<vector<GLfloat>>(MITOCHONDRIA_POINTS+3,vector<GLfloat>(3));
+      mitochondria.at(i).pointsLater = new vector<vector<GLfloat>>(MITOCHONDRIA_POINTS+3,vector<GLfloat>(3));
    }
 
-   getMitochondriaPoints(mitochondria.at(0).ctrlpoints,MITOCHONDRIA_RADIUS_X - getInBetween(0,MITOCHONDRIA_RADIUS_X*0.1),MITOCHONDRIA_RADIUS_Y - getInBetween(0,MITOCHONDRIA_RADIUS_Y*0.2));
-   getMitochondriaPoints(mitochondria.at(1).ctrlpoints,MITOCHONDRIA_RADIUS_X - getInBetween(MITOCHONDRIA_RADIUS_X*0.3,MITOCHONDRIA_RADIUS_X*0.5),MITOCHONDRIA_RADIUS_Y - getInBetween(MITOCHONDRIA_RADIUS_Y*0.3,MITOCHONDRIA_RADIUS_Y*0.5));
-
-   textureMitochondria = loadTexture("mitochondriaTex.jpg",true);
-   texturePrimaryLysosome = loadTexture("primaryLysosome.jpg",true);
-   textureLysosome = loadTexture("lysosome.jpg",true);
+   getMitochondriaPoints(mitochondria.at(0).ctrlpoints,MITOCHONDRIA_RADIUS_X - getInBetween(0,MITOCHONDRIA_RADIUS_X*0.1),MITOCHONDRIA_RADIUS_Y - getInBetween(0,MITOCHONDRIA_RADIUS_Y*0.2),MITOCHONDRIA_STANDARD_DEVIATION_X,MITOCHONDRIA_STANDARD_DEVIATION_Y);
+   getMitochondriaPoints(mitochondria.at(1).ctrlpoints,MITOCHONDRIA_RADIUS_X - getInBetween(MITOCHONDRIA_RADIUS_X*0.3,MITOCHONDRIA_RADIUS_X*0.5),MITOCHONDRIA_RADIUS_Y - getInBetween(MITOCHONDRIA_RADIUS_Y*0.3,MITOCHONDRIA_RADIUS_Y*0.5),MITOCHONDRIA_STANDARD_DEVIATION_X,MITOCHONDRIA_STANDARD_DEVIATION_Y);
+   copyCurveConfiguration(mitochondria.at(0).pointsNow, mitochondria.at(0).ctrlpoints);
+   copyCurveConfiguration(mitochondria.at(1).pointsNow, mitochondria.at(1).ctrlpoints);
+   getMitochondriaPoints(mitochondria.at(0).pointsLater,MITOCHONDRIA_RADIUS_X - getInBetween(0,MITOCHONDRIA_RADIUS_X*0.1),MITOCHONDRIA_RADIUS_Y - getInBetween(0,MITOCHONDRIA_RADIUS_Y*0.2),MITOCHONDRIA_STANDARD_DEVIATION_X,MITOCHONDRIA_STANDARD_DEVIATION_Y);
+   getMitochondriaPoints(mitochondria.at(1).pointsLater,MITOCHONDRIA_RADIUS_X - getInBetween(MITOCHONDRIA_RADIUS_X*0.3,MITOCHONDRIA_RADIUS_X*0.5),MITOCHONDRIA_RADIUS_Y - getInBetween(MITOCHONDRIA_RADIUS_Y*0.3,MITOCHONDRIA_RADIUS_Y*0.5),MITOCHONDRIA_STANDARD_DEVIATION_X,MITOCHONDRIA_STANDARD_DEVIATION_Y);
+   textureMitochondria = loadTexture("mitochondriaTexNormalized.jpg",true);
+   texturePrimaryLysosome = loadTexture("primaryLysosomeNormalized.jpg",true);
+   textureLysosome = loadTexture("lysosomeNormalized.jpg",true);
 }
 
 float getInBetween(float a, float b){
@@ -258,14 +266,37 @@ void getCurvePoints(vector< vector< GLfloat> > *points,float r, float sd, float 
    points->at(sectors+2).at(2) = points->at(2).at(2); // end point over
 }
 
-void getMitochondriaPoints(vector< vector< GLfloat> > *points,float radiusX, float radiusY){
+void getMitochondriaPoints(vector< vector< GLfloat> > *points,float radiusX, float radiusY, float sdx, float sdy){
    // generates mitochondria boundary points
-   int pt=0;
-   for(GLfloat i=0.0;i<2*PI;i+=2*PI/MITOCHONDRIA_POINTS,pt++){
-      points->at(pt).at(0) = radiusX*cos(i);
-      points->at(pt).at(1) = radiusY*sin(i);
-      points->at(pt).at(2) = 0.25;
+   // int pt=0;
+   // for(GLfloat i=0.0;i<2*PI;i+=2*PI/MITOCHONDRIA_POINTS,pt++){
+   //    points->at(pt).at(0) = radiusX*cos(i);
+   //    points->at(pt).at(1) = radiusY*sin(i);
+   //    points->at(pt).at(2) = 0.25;
+   // }
+   float sectors = MITOCHONDRIA_POINTS;
+   float rdashX,rdashY,theta,sectorAngle = 2*PI/sectors; // the variance limit across the circle/curve boundary
+   // float points[sectors+4][3]; // three points repeating at beginning and 3 points at th end with bsplines
+   for(int i=0;i<sectors;i++){
+      // generate those points
+      rdashX = radiusX*(1.0 + sdx*(rand()/(1.0*RAND_MAX) - 0.5));
+      rdashY = radiusY*(1.0 + sdy*(rand()/(1.0*RAND_MAX) - 0.5));
+      theta = getInBetween(sectorAngle*i,sectorAngle*(i+1));
+      points->at(i).at(0) = rdashX*cos(theta); // x
+      points->at(i).at(1) = rdashY*sin(theta); // y
+      points->at(i).at(2) = 0.0; // z
    }
+
+   // for smooth loop at intersection of start and end points
+   points->at(sectors).at(0) = points->at(0).at(0);
+   points->at(sectors).at(1) = points->at(0).at(1);
+   points->at(sectors).at(2) = points->at(0).at(2); // n-2th points over
+   points->at(sectors+1).at(0) = points->at(1).at(0);
+   points->at(sectors+1).at(1) = points->at(1).at(1);
+   points->at(sectors+1).at(2) = points->at(1).at(2); // n-1th points over
+   points->at(sectors+2).at(0) = points->at(2).at(0);
+   points->at(sectors+2).at(1) = points->at(2).at(1);
+   points->at(sectors+2).at(2) = points->at(2).at(2); // end point over
 }
 
 void copyCurveConfiguration(vector< vector<GLfloat> > *dest,vector< vector<GLfloat> > *source){
@@ -348,10 +379,12 @@ void drawPrimaryLysosome(vector< vector<GLfloat> > *ctrlpts,int i){
       GLfloat u,u_2,u_3,b[ CONTROL_POINTS ]; // 'b' stores the blending polynomials for bsplines
       // int len = sizeof(ctrlpts)/sizeof(ctrlpts[0]);
       // cout << len ;
+      GLfloat minX = numeric_limits<float>::max(),maxX = numeric_limits<float>::min(),minY = numeric_limits<float>::max(),maxY = numeric_limits<float>::min();
+      vector<vector<GLfloat> > curvePoints;
       for(int point = 0; point<len-3; point++){
-         GLfloat curveVertex[3];
       
          for(float iter=0.0;iter<STEPS;iter+=1.0){
+            vector<GLfloat> curveVertex(3);
             u = iter/STEPS;
             u_2 = u*u;
             u_3 = u_2*u;
@@ -364,10 +397,27 @@ void drawPrimaryLysosome(vector< vector<GLfloat> > *ctrlpts,int i){
             for(int k=0;k<3;k++){
                curveVertex[k] = b[0]*ctrlpts->at(point).at(k) + b[1]*ctrlpts->at(point+1).at(k) + b[2]*ctrlpts->at(point+2).at(k) + b[3]*ctrlpts->at(point+3).at(k);
             }
-            glTexCoord2f((curveVertex[0]+primaryLysosome.at(i).textureXdash)/(TPRIMARY_LYSOSOME_MAGNIFICATION*PRIMARY_LYSOSOME_RADIUS*(1+PRIMARY_LYSOSOME_STANDARD_DEVIATION)),(curveVertex[1]+primaryLysosome.at(i).textureYdash)/(TPRIMARY_LYSOSOME_MAGNIFICATION*PRIMARY_LYSOSOME_RADIUS*(1+PRIMARY_LYSOSOME_STANDARD_DEVIATION)));
-            glVertex3fv(curveVertex);
-
+            curvePoints.push_back(curveVertex);
+            if(curveVertex[0] < minX){
+               minX = curveVertex[0];
+            }
+            if(curveVertex[0] > maxX){
+               maxX = curveVertex[0];
+            }
+            if(curveVertex[1] < minY){
+               minY = curveVertex[1];
+            }
+            if(curveVertex[1] > maxY){
+               maxY = curveVertex[1];
+            }
+            // glTexCoord2f((curveVertex[0]+primaryLysosome.at(i).textureXdash)/(TPRIMARY_LYSOSOME_MAGNIFICATION*PRIMARY_LYSOSOME_RADIUS*(1+PRIMARY_LYSOSOME_STANDARD_DEVIATION)),(curveVertex[1]+primaryLysosome.at(i).textureYdash)/(TPRIMARY_LYSOSOME_MAGNIFICATION*PRIMARY_LYSOSOME_RADIUS*(1+PRIMARY_LYSOSOME_STANDARD_DEVIATION)));
+            // glVertex3fv(curveVertex);
          }
+      }
+      for(int k=0;k<curvePoints.size();k++){
+         // cout << (curvePoints.at(k).at(0) - minX)/(maxX-minX)<< "," << (curvePoints.at(k).at(1) - minY)/(maxY-minY) << endl;
+         glTexCoord2f((curvePoints.at(k).at(0) - minX)/(maxX-minX),(curvePoints.at(k).at(1) - minY)/(maxY-minY));
+         glVertex3f(curvePoints.at(k).at(0),curvePoints.at(k).at(1),curvePoints.at(k).at(2));
       }
    glEnd();
 
@@ -504,6 +554,7 @@ void drawCapsule(vector< vector<GLfloat> > *ctrlpts){
       // cout << len ;
       for(int point = 0; point<len-3; point++){
          GLfloat curveVertex[3];
+      // mitochondria.a
          // glColor3f(1.0,0.0,0.0);
          for(float iter=0.0;iter<STEPS;iter+=1.0){
             u = iter/STEPS;
@@ -546,18 +597,39 @@ void drawCapsule(vector< vector<GLfloat> > *ctrlpts){
 
 void drawMitochondria(int i){
    glPushMatrix();
-   if(tMitochondria>=TMITOCHONDRIA_CHANGE_STEP){
-      mitochondria.at(i).xdash = mitochondria.at(i).x  + getInBetween(mitochondria.at(i).x*0.01,mitochondria.at(i).x*0.05);
-      mitochondria.at(i).ydash = mitochondria.at(i).y  + getInBetween(mitochondria.at(i).y*0.01,mitochondria.at(i).y*0.05);
-   }
+   // if(tMitochondria>=TMITOCHONDRIA_CHANGE_STEP){
+      // mitochondria.at(i).xdash = mitochondria.at(i).x  + getInBetween(mitochondria.at(i).x*0.01,mitochondria.at(i).x*0.05);
+      // mitochondria.at(i).ydash = mitochondria.at(i).y  + getInBetween(mitochondria.at(i).y*0.01,mitochondria.at(i).y*0.05);
+   // }
    glTranslatef(mitochondria.at(i).xdash,mitochondria.at(i).ydash,mitochondria.at(i).z);
    glRotatef(mitochondria.at(i).theta,0.0,0.0,1.0);
    glEnable(GL_TEXTURE_2D);
    glBindTexture(GL_TEXTURE_2D,textureMitochondria);
    glBegin(GL_POLYGON);
    glColor3f(1.0,1.0,1.0);
+
+   // compute normalized texture
+   GLfloat minX = numeric_limits<float>::max(),maxX = numeric_limits<float>::min(),minY = numeric_limits<float>::max(),maxY = numeric_limits<float>::min();
+
    for(GLfloat j=0.0;j<mitochondria.at(i).ctrlpoints->size();j++){
-      glTexCoord2f((mitochondria.at(i).ctrlpoints->at(j).at(0)+MITOCHONDRIA_RADIUS_X)/(2*MITOCHONDRIA_RADIUS_X),(mitochondria.at(i).ctrlpoints->at(j).at(1)+MITOCHONDRIA_RADIUS_Y)/(2*MITOCHONDRIA_RADIUS_Y));
+      if(mitochondria.at(i).ctrlpoints->at(j).at(0) < minX){
+         minX = mitochondria.at(i).ctrlpoints->at(j).at(0);
+      }
+      if(mitochondria.at(i).ctrlpoints->at(j).at(0) > maxX){
+         maxX = mitochondria.at(i).ctrlpoints->at(j).at(0);
+      }
+      if(mitochondria.at(i).ctrlpoints->at(j).at(1) < minY){
+         minY = mitochondria.at(i).ctrlpoints->at(j).at(1);
+      }
+      if(mitochondria.at(i).ctrlpoints->at(j).at(1) > maxY){
+         maxY = mitochondria.at(i).ctrlpoints->at(j).at(1);
+      }
+   }
+
+   for(GLfloat j=0.0;j<mitochondria.at(i).ctrlpoints->size();j++){
+       
+      // glTexCoord2f((mitochondria.at(i).ctrlpoints->at(j).at(0)+MITOCHONDRIA_RADIUS_X)/(2*MITOCHONDRIA_RADIUS_X),(mitochondria.at(i).ctrlpoints->at(j).at(1)+MITOCHONDRIA_RADIUS_Y)/(2*MITOCHONDRIA_RADIUS_Y));
+      glTexCoord2f((mitochondria.at(i).ctrlpoints->at(j).at(0) - minX)/(maxX-minX),(mitochondria.at(i).ctrlpoints->at(j).at(1) - minX)/(maxX-minX));
       glVertex3f(mitochondria.at(i).ctrlpoints->at(j).at(0),mitochondria.at(i).ctrlpoints->at(j).at(1),mitochondria.at(i).ctrlpoints->at(j).at(2));
    }
    glEnd();
@@ -636,12 +708,8 @@ void display(void)
       
       // drawPath(capsule.capsulePathCtrlPoints);
    }
-   tMitochondria++;
    for(int i=0;i<mitochondria.size();i++){
       drawMitochondria(i);
-   }
-   if(tMitochondria>=TMITOCHONDRIA_CHANGE_STEP){
-      tMitochondria=0;
    }
    glScalef(1.0/scale.x,1.0/scale.y,1.0/scale.z);
    glPopMatrix();
@@ -705,6 +773,22 @@ void timer(int id){
    for(int i=0;i<primaryLysosome.size();i++){
       getInterpolatedPointsForCurve(primaryLysosome.at(i).lysosomeCtrlPoints, primaryLysosome.at(i).pointsNow, primaryLysosome.at(i).pointsLater);
    }
+
+   // for mitochondria
+   fflush(stdout);
+   if(tMitochondria<1.0){
+      tMitochondria+=1.0/TMITOCHONDRIA_CHANGE_STEP;
+   } else {
+      copyCurveConfiguration(mitochondria.at(0).pointsNow,mitochondria.at(0).pointsLater); // the destination configuration is our current configuration
+      getMitochondriaPoints(mitochondria.at(0).pointsLater,MITOCHONDRIA_RADIUS_X - getInBetween(0,MITOCHONDRIA_RADIUS_X*0.1),MITOCHONDRIA_RADIUS_Y - getInBetween(0,MITOCHONDRIA_RADIUS_Y*0.2),MITOCHONDRIA_STANDARD_DEVIATION_X,MITOCHONDRIA_STANDARD_DEVIATION_Y);
+      copyCurveConfiguration(mitochondria.at(1).pointsNow,mitochondria.at(1).pointsLater); // the destination configuration is our current configuration
+      getMitochondriaPoints(mitochondria.at(1).pointsLater,MITOCHONDRIA_RADIUS_X - getInBetween(MITOCHONDRIA_RADIUS_X*0.3,MITOCHONDRIA_RADIUS_X*0.5),MITOCHONDRIA_RADIUS_Y - getInBetween(MITOCHONDRIA_RADIUS_Y*0.3,MITOCHONDRIA_RADIUS_Y*0.5),MITOCHONDRIA_STANDARD_DEVIATION_X,MITOCHONDRIA_STANDARD_DEVIATION_Y);
+      tMitochondria = 1.0/TMITOCHONDRIA_CHANGE_STEP;
+   }
+   for(int i=0;i<mitochondria.size();i++){
+      getInterpolatedPointsForCurve(mitochondria.at(i).ctrlpoints, mitochondria.at(i).pointsNow, mitochondria.at(i).pointsLater);
+   }
+
    
    if(scale.x == scale.y && abs(scale.x-1.0) <= CELL_GROW_RATE){
       scale.x = 1.0;
