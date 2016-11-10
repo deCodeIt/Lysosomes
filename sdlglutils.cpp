@@ -51,7 +51,7 @@ GLuint loadTexture(const char * filename,bool useMipMap)
     glBindTexture(GL_TEXTURE_2D, glID);
 
     // create a raw file from the texture
-    int NAME_OFFSET = 12;
+    int NAME_OFFSET = 0;
     char *mapFileName = new char(strlen(filename+NAME_OFFSET));
     strcpy(mapFileName,filename+NAME_OFFSET);
     strcpy(mapFileName+strlen(mapFileName)-3,"raw");
