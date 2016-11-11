@@ -51,6 +51,8 @@
 #define MITOCHONDRIA_STANDARD_DEVIATION_X 0.0
 #define MITOCHONDRIA_STANDARD_DEVIATION_Y 0.4
 
+#define GOLGI_DIMENSION 3.0
+
 #define CAPSULE_DISAPPEAR 2.5
 
 using namespace std;
@@ -78,16 +80,16 @@ struct _mitochondria{
 
 vector <_mitochondria> mitochondria(2);
 
-vector <_primaryLysosome> primaryLysosome(5);
+vector <_primaryLysosome> primaryLysosome(4);
 
-GLfloat textureMitochondria,texturePrimaryLysosome,textureLysosome;
+GLfloat textureMitochondria,texturePrimaryLysosome,textureLysosome,textureGolgi;
 
 struct _scale{
    GLfloat x,y,z;
 } scale;
 
 float tCell=0.0,tPrimaryLysosome=0.0;
-float tCapsule=0.0,tLysosomeMove=0.0,tMitochondria=0.0;
+float tCapsule=0.0,tLysosomeMove=0.0,tMitochondria=0.0,tGolgi=0.0;
 int tLysosomeChange=0;
 
 vector< vector<GLfloat> > *ctrlpoints = new vector< vector <GLfloat> >(CELL_SECTORS+3, vector< GLfloat >(3)); // +4 for duplicate ending points for bsplines; // changes with tCell value as in interpolation
@@ -112,7 +114,7 @@ void init(void)
    srand(time(NULL));
    
    // for initial animation
-   scale.x = 1.0;
+   scale.x = 0.01;
    scale.y = scale.x;
    scale.z = 1.0;
 
@@ -150,14 +152,14 @@ void init(void)
    primaryLysosome[2].z=0.90;
 
    //second lysosome
-   primaryLysosome[3].x=-2.0;
-   primaryLysosome[3].y=-2.0;
+   primaryLysosome[3].x=0.75;
+   primaryLysosome[3].y=-3.0;
    primaryLysosome[3].z=0.25;
 
    //third lysosome
-   primaryLysosome[4].x=0.75;
-   primaryLysosome[4].y=-3.0;
-   primaryLysosome[4].z=0.25;
+   // primaryLysosome[4].x=-2.0;
+   // primaryLysosome[4].y=-2.0;
+   // primaryLysosome[4].z=0.25;
 
    for(int i=2;i<primaryLysosome.size();i++){
       primaryLysosome.at(i).textureXdash = primaryLysosome.at(i).x;
@@ -223,6 +225,7 @@ void init(void)
    textureMitochondria = loadTexture("mitochondriaTexNormalized.jpg",true);
    texturePrimaryLysosome = loadTexture("primaryLysosomeNormalized.jpg",true);
    textureLysosome = loadTexture("lysosomeNormalized.jpg",true);
+   textureGolgi = loadTexture("golgiNormalized.png",true);
 }
 
 float getInBetween(float a, float b){
@@ -683,6 +686,31 @@ void drawPath(vector< vector<GLfloat> > *ctrlpts){
    glPopMatrix();
 }
 
+void drawGolgi(){
+   glPushMatrix();
+      // glColor3f(247.0/256.0,212.0/256.0,158.0/256.0);
+      glTranslatef(-2.0,-2.5,0.25);
+      glRotatef(135.0,0.0,0.0,1.0);
+      glEnable(GL_TEXTURE_2D);
+      glBindTexture(GL_TEXTURE_2D,textureGolgi);
+
+      glBegin(GL_POLYGON);
+
+      glTexCoord2f(0.0,0.0);
+      glVertex3f(-GOLGI_DIMENSION/2.0,-GOLGI_DIMENSION/2.0,0.0);
+      glTexCoord2f(1.0,0.0);
+      glVertex3f(GOLGI_DIMENSION/2.0,-GOLGI_DIMENSION/2.0,0.0);
+      glTexCoord2f(1.0,1.0);
+      glVertex3f(GOLGI_DIMENSION,GOLGI_DIMENSION/2.0,0.0);
+      glTexCoord2f(0.0,1.0);
+      glVertex3f(-GOLGI_DIMENSION/2.0,GOLGI_DIMENSION/2.0,0.0);
+
+      glEnd();
+      glDisable(GL_TEXTURE_2D);
+      
+   glPopMatrix();
+}
+
 void display(void)
 {
 
@@ -711,6 +739,7 @@ void display(void)
    for(int i=0;i<mitochondria.size();i++){
       drawMitochondria(i);
    }
+   drawGolgi();
    glScalef(1.0/scale.x,1.0/scale.y,1.0/scale.z);
    glPopMatrix();
 
