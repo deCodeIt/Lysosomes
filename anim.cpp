@@ -6,7 +6,6 @@
 #include <iostream>
 #include <cmath>
 #include <vector>
-#include "sdlglutils.h"
 #include <limits>
 
 #define CELL_GROW_RATE 0.01
@@ -69,6 +68,7 @@ struct _capsule{
 struct _primaryLysosome{
    GLfloat x,y,z,r,g,b,xdash,ydash,textureXdash,textureYdash;
    vector<vector<GLfloat>> *lysosomeCtrlPoints,*pointsNow,*pointsLater;
+   // parameters for a primary lysosome for its display and animation
 
 };
 
@@ -78,23 +78,27 @@ struct _mitochondria{
    vector<vector<GLfloat>> *ctrlpoints,*pointsNow,*pointsLater;
 };
 
-vector <_mitochondria> mitochondria(2);
+vector <_mitochondria> mitochondria(2); // number of mitochondria
 
-vector <_primaryLysosome> primaryLysosome(4);
+vector <_primaryLysosome> primaryLysosome(4); // number of lysosomes + 1 nucleus + 1 nucleolus
 
 GLfloat textureMitochondria,texturePrimaryLysosome,textureLysosome,textureGolgi;
 
+bool flag = false; // to start the animation
+bool pause = true; // pause tha animation
+
 struct _scale{
    GLfloat x,y,z;
+   // gets the user from normal magnification to cell level magnification
 } scale;
 
 float tCell=0.0,tPrimaryLysosome=0.0;
-float tCapsule=0.0,tLysosomeMove=0.0,tMitochondria=0.0,tGolgi=0.0;
+float tCapsule=0.0,tLysosomeMove=0.0,tMitochondria=0.0,tGolgi=0.0; // parameters for movement of cell and its constituents
 int tLysosomeChange=0;
 
 vector< vector<GLfloat> > *ctrlpoints = new vector< vector <GLfloat> >(CELL_SECTORS+3, vector< GLfloat >(3)); // +4 for duplicate ending points for bsplines; // changes with tCell value as in interpolation
-vector< vector<GLfloat> > *pointsNow = new vector< vector <GLfloat> >(CELL_SECTORS+3, vector< GLfloat >(3)); // cell points in current configuration
-vector< vector<GLfloat> > *pointsLater = new vector< vector <GLfloat> >(CELL_SECTORS+3, vector< GLfloat >(3)); // cell points for next configuration
+vector< vector<GLfloat> > *pointsNow = new vector< vector <GLfloat> >(CELL_SECTORS+3, vector< GLfloat >(3)); // cell points in current configuration of the curve
+vector< vector<GLfloat> > *pointsLater = new vector< vector <GLfloat> >(CELL_SECTORS+3, vector< GLfloat >(3)); // cell points for next configuration of the curve
 
 void getCurvePoints(vector< vector< GLfloat> > *,float, float, float);
 void getMitochondriaPoints(vector< vector< GLfloat> > *,float, float, float, float);
@@ -109,23 +113,50 @@ void drawPath(vector< vector<GLfloat> > *);
 void drawPrimaryLysosome(vector< vector<GLfloat> > *, int);
 void drawMitochondria(int);
 
+GLuint loadTexture( const char *filename, int width, int height ) {
+   // loads the given texture from the file with specified width and height
+   GLuint texture;
+   unsigned char * data;
+   FILE * file;
+
+   file = fopen( filename, "rb" );
+   if ( file == NULL ) return 0;
+   // printf("Reading File: %s\n",filename);
+   data = (unsigned char *)malloc( width * height * 4 );
+   fread( data, width * height * 4, 1, file );
+   fclose( file );
+
+   glGenTextures( 1, &texture ); //generate the texture with the loaded data
+   glBindTexture( GL_TEXTURE_2D, texture ); //bind the texture to it’s array
+   glTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE ); //set texture environment parameters
+
+   glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+   glTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
+
+   glTexImage2D(GL_TEXTURE_2D, 0, 4, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+
+   free( data ); //free the texture
+   return texture; //return whether it was successfull
+}
+
 void init(void)
 {
-   srand(time(NULL));
+   srand(time(NULL)); // seef for random number generation
    
    // for initial animation
    scale.x = 0.01;
-   scale.y = scale.x;
+   scale.y = scale.x; // scaling x and y directions equally
    scale.z = 1.0;
 
    glClearColor(1.0, 1.0, 1.0, 0.0);
    glShadeModel(GL_SMOOTH);
    
-   glEnable(GL_MAP1_VERTEX_3);
+   // glEnable(GL_MAP1_VERTEX_3);
    getCurvePoints(ctrlpoints,CELL_RADIUS,CELL_STANDARD_DEVIATION,CELL_SECTORS); // initial cell configuration
    copyCurveConfiguration(pointsNow,ctrlpoints); // the destination configuration is our current configuration
    getCurvePoints(pointsLater,CELL_RADIUS,CELL_STANDARD_DEVIATION,CELL_SECTORS); // make a new destination configuration
 
+   // capsule is our food to be eaten
    capsule.x = 0.0;
    capsule.y = 10.0;
    capsule.z = 0.5;
@@ -222,10 +253,12 @@ void init(void)
    copyCurveConfiguration(mitochondria.at(1).pointsNow, mitochondria.at(1).ctrlpoints);
    getMitochondriaPoints(mitochondria.at(0).pointsLater,MITOCHONDRIA_RADIUS_X - getInBetween(0,MITOCHONDRIA_RADIUS_X*0.1),MITOCHONDRIA_RADIUS_Y - getInBetween(0,MITOCHONDRIA_RADIUS_Y*0.2),MITOCHONDRIA_STANDARD_DEVIATION_X,MITOCHONDRIA_STANDARD_DEVIATION_Y);
    getMitochondriaPoints(mitochondria.at(1).pointsLater,MITOCHONDRIA_RADIUS_X - getInBetween(MITOCHONDRIA_RADIUS_X*0.3,MITOCHONDRIA_RADIUS_X*0.5),MITOCHONDRIA_RADIUS_Y - getInBetween(MITOCHONDRIA_RADIUS_Y*0.3,MITOCHONDRIA_RADIUS_Y*0.5),MITOCHONDRIA_STANDARD_DEVIATION_X,MITOCHONDRIA_STANDARD_DEVIATION_Y);
-   textureMitochondria = loadTexture("mitochondriaTexNormalized.jpg",true);
-   texturePrimaryLysosome = loadTexture("primaryLysosomeNormalized.jpg",true);
-   textureLysosome = loadTexture("lysosomeNormalized.jpg",true);
-   textureGolgi = loadTexture("golgiNormalized.png",true);
+
+   // load the texture
+   textureMitochondria = loadTexture("mitochondriaTexNormalized.raw",95,37);
+   texturePrimaryLysosome = loadTexture("primaryLysosomeNormalized.raw",33,34);
+   textureLysosome = loadTexture("lysosomeNormalized.raw",181,180);
+   textureGolgi = loadTexture("golgiNormalized.raw",170,140);
 }
 
 float getInBetween(float a, float b){
@@ -271,15 +304,10 @@ void getCurvePoints(vector< vector< GLfloat> > *points,float r, float sd, float 
 
 void getMitochondriaPoints(vector< vector< GLfloat> > *points,float radiusX, float radiusY, float sdx, float sdy){
    // generates mitochondria boundary points
-   // int pt=0;
-   // for(GLfloat i=0.0;i<2*PI;i+=2*PI/MITOCHONDRIA_POINTS,pt++){
-   //    points->at(pt).at(0) = radiusX*cos(i);
-   //    points->at(pt).at(1) = radiusY*sin(i);
-   //    points->at(pt).at(2) = 0.25;
-   // }
+   
    float sectors = MITOCHONDRIA_POINTS;
    float rdashX,rdashY,theta,sectorAngle = 2*PI/sectors; // the variance limit across the circle/curve boundary
-   // float points[sectors+4][3]; // three points repeating at beginning and 3 points at th end with bsplines
+   // three points repeating at beginning and 3 points at the end with bsplines
    for(int i=0;i<sectors;i++){
       // generate those points
       rdashX = radiusX*(1.0 + sdx*(rand()/(1.0*RAND_MAX) - 0.5));
@@ -313,12 +341,10 @@ void copyCurveConfiguration(vector< vector<GLfloat> > *dest,vector< vector<GLflo
 
 void drawCell(vector< vector<GLfloat> > *ctrlpts,int len){
    glBegin(GL_POLYGON);
-   // glColor3f(rand()/(1.0*RAND_MAX), rand()/(1.0*RAND_MAX), rand()/(1.0*RAND_MAX));
-   // glColor3f(250.0/256.0,232.0/256.0,192.0/256.0);
+
    glColor3f(247.0/256.0,212.0/256.0,158.0/256.0);
       GLfloat u,u_2,u_3,b[ CONTROL_POINTS ]; // 'b' stores the blending polynomials for bsplines
-      // int len = sizeof(ctrlpts)/sizeof(ctrlpts[0]);
-      // cout << len ;
+      
       for(int point = 0; point<len-3; point++){
          GLfloat curveVertex[3];
       
@@ -331,7 +357,7 @@ void drawCell(vector< vector<GLfloat> > *ctrlpts,int len){
             b[1] = (4 - 6*u_2 + 3*u_3)/6.0;
             b[2] = (1 + 3*u + 3*u_2 - 3*u_3 )/6.0;
             b[3] = u_3/6.0;
-
+            // interpolate bsplines
             for(int k=0;k<3;k++){
                curveVertex[k] = b[0]*ctrlpts->at(point).at(k) + b[1]*ctrlpts->at(point+1).at(k) + b[2]*ctrlpts->at(point+2).at(k) + b[3]*ctrlpts->at(point+3).at(k);
             }
@@ -341,15 +367,6 @@ void drawCell(vector< vector<GLfloat> > *ctrlpts,int len){
          }
       }
    glEnd();
-
-   // control points
-   // glPointSize(7.0);
-   // glColor3f(1.0, 0.0, 0.0);
-   // glBegin(GL_POINTS);
-   // for (int i = 0; i < len; i++) {
-   //    glVertex3fv(&ctrlpts->at(i).at(0));
-//    }
-   // glEnd();
 }
 
 void drawPrimaryLysosome(vector< vector<GLfloat> > *ctrlpts,int i){
@@ -376,16 +393,12 @@ void drawPrimaryLysosome(vector< vector<GLfloat> > *ctrlpts,int i){
    }
    glBegin(GL_POLYGON);
    
-   // glColor3f(rand()/(1.0*RAND_MAX), rand()/(1.0*RAND_MAX), rand()/(1.0*RAND_MAX));
-   // glColor3f(250.0/256.0,232.0/256.0,192.0/256.0);
-   // glColor3f(primaryLysosome.at(i).r,primaryLysosome.at(i).g,primaryLysosome.at(i).b);
       GLfloat u,u_2,u_3,b[ CONTROL_POINTS ]; // 'b' stores the blending polynomials for bsplines
-      // int len = sizeof(ctrlpts)/sizeof(ctrlpts[0]);
-      // cout << len ;
+
       GLfloat minX = numeric_limits<float>::max(),maxX = numeric_limits<float>::min(),minY = numeric_limits<float>::max(),maxY = numeric_limits<float>::min();
       vector<vector<GLfloat> > curvePoints;
       for(int point = 0; point<len-3; point++){
-      
+         // interpolate bsplines
          for(float iter=0.0;iter<STEPS;iter+=1.0){
             vector<GLfloat> curveVertex(3);
             u = iter/STEPS;
@@ -413,8 +426,6 @@ void drawPrimaryLysosome(vector< vector<GLfloat> > *ctrlpts,int i){
             if(curveVertex[1] > maxY){
                maxY = curveVertex[1];
             }
-            // glTexCoord2f((curveVertex[0]+primaryLysosome.at(i).textureXdash)/(TPRIMARY_LYSOSOME_MAGNIFICATION*PRIMARY_LYSOSOME_RADIUS*(1+PRIMARY_LYSOSOME_STANDARD_DEVIATION)),(curveVertex[1]+primaryLysosome.at(i).textureYdash)/(TPRIMARY_LYSOSOME_MAGNIFICATION*PRIMARY_LYSOSOME_RADIUS*(1+PRIMARY_LYSOSOME_STANDARD_DEVIATION)));
-            // glVertex3fv(curveVertex);
          }
       }
       for(int k=0;k<curvePoints.size();k++){
@@ -424,14 +435,6 @@ void drawPrimaryLysosome(vector< vector<GLfloat> > *ctrlpts,int i){
       }
    glEnd();
 
-   // control points
-   // glPointSize(7.0);
-   // glColor3f(1.0, 0.0, 0.0);
-   // glBegin(GL_POINTS);
-   // for (int i = 0; i < len; i++) {
-   //    glVertex3fv(&ctrlpts->at(i).at(0));
-//    }
-   // glEnd();
    glDisable(GL_TEXTURE_2D);
    glPopMatrix();
 }
@@ -542,23 +545,18 @@ void drawCapsule(vector< vector<GLfloat> > *ctrlpts){
    glRotatef(capsule.theta,0.0,0.0,1.0);
 
    if(tLysosomeMove>=1.0){
-         // time to reduce its size
+         // time to reduce the food size as the lysosome is now consuming it
          tLysosomeMove+=TPRIMARY_LYSOSOME_SIZE_STEP;
          glScalef(1.0/tLysosomeMove,1.0/tLysosomeMove,1.0);
       }
 
    int len = ctrlpts->size();
    glBegin(GL_POLYGON);
-   // glColor3f(rand()/(1.0*RAND_MAX), rand()/(1.0*RAND_MAX), rand()/(1.0*RAND_MAX));
-   // glColor3f(250.0/256.0,232.0/256.0,192.0/256.0);
    glColor3f(1.0,0.0,0.0);
       GLfloat u,u_2,u_3,b[ CONTROL_POINTS ]; // 'b' stores the blending polynomials for bsplines
-      // int len = sizeof(ctrlpts)/sizeof(ctrlpts[0]);
-      // cout << len ;
       for(int point = 0; point<len-3; point++){
          GLfloat curveVertex[3];
       // mitochondria.a
-         // glColor3f(1.0,0.0,0.0);
          for(float iter=0.0;iter<STEPS;iter+=1.0){
             u = iter/STEPS;
             u_2 = u*u;
@@ -568,7 +566,7 @@ void drawCapsule(vector< vector<GLfloat> > *ctrlpts){
             b[1] = (4 - 6*u_2 + 3*u_3)/6.0;
             b[2] = (1 + 3*u + 3*u_2 - 3*u_3 )/6.0;
             b[3] = u_3/6.0;
-
+            // interpolate b-splines
             for(int k=0;k<3;k++){
                curveVertex[k] = b[0]*ctrlpts->at(point).at(k) + b[1]*ctrlpts->at(point+1).at(k) + b[2]*ctrlpts->at(point+2).at(k) + b[3]*ctrlpts->at(point+3).at(k);
             }
@@ -592,7 +590,6 @@ void drawCapsule(vector< vector<GLfloat> > *ctrlpts){
 
    if(tLysosomeMove >= 1.0){
       glScalef(tLysosomeMove,tLysosomeMove,1.0);
-         // cout << tLysosomeMove << endl;
    }
 
    glPopMatrix();
@@ -600,10 +597,7 @@ void drawCapsule(vector< vector<GLfloat> > *ctrlpts){
 
 void drawMitochondria(int i){
    glPushMatrix();
-   // if(tMitochondria>=TMITOCHONDRIA_CHANGE_STEP){
-      // mitochondria.at(i).xdash = mitochondria.at(i).x  + getInBetween(mitochondria.at(i).x*0.01,mitochondria.at(i).x*0.05);
-      // mitochondria.at(i).ydash = mitochondria.at(i).y  + getInBetween(mitochondria.at(i).y*0.01,mitochondria.at(i).y*0.05);
-   // }
+
    glTranslatef(mitochondria.at(i).xdash,mitochondria.at(i).ydash,mitochondria.at(i).z);
    glRotatef(mitochondria.at(i).theta,0.0,0.0,1.0);
    glEnable(GL_TEXTURE_2D);
@@ -615,6 +609,7 @@ void drawMitochondria(int i){
    GLfloat minX = numeric_limits<float>::max(),maxX = numeric_limits<float>::min(),minY = numeric_limits<float>::max(),maxY = numeric_limits<float>::min();
 
    for(GLfloat j=0.0;j<mitochondria.at(i).ctrlpoints->size();j++){
+      // for texture
       if(mitochondria.at(i).ctrlpoints->at(j).at(0) < minX){
          minX = mitochondria.at(i).ctrlpoints->at(j).at(0);
       }
@@ -631,7 +626,6 @@ void drawMitochondria(int i){
 
    for(GLfloat j=0.0;j<mitochondria.at(i).ctrlpoints->size();j++){
        
-      // glTexCoord2f((mitochondria.at(i).ctrlpoints->at(j).at(0)+MITOCHONDRIA_RADIUS_X)/(2*MITOCHONDRIA_RADIUS_X),(mitochondria.at(i).ctrlpoints->at(j).at(1)+MITOCHONDRIA_RADIUS_Y)/(2*MITOCHONDRIA_RADIUS_Y));
       glTexCoord2f((mitochondria.at(i).ctrlpoints->at(j).at(0) - minX)/(maxX-minX),(mitochondria.at(i).ctrlpoints->at(j).at(1) - minX)/(maxX-minX));
       glVertex3f(mitochondria.at(i).ctrlpoints->at(j).at(0),mitochondria.at(i).ctrlpoints->at(j).at(1),mitochondria.at(i).ctrlpoints->at(j).at(2));
    }
@@ -641,19 +635,18 @@ void drawMitochondria(int i){
 }
 
 void drawPath(vector< vector<GLfloat> > *ctrlpts){
+   // additional function that draws out the path taken by the food/capsule
+   // for debugging Purposes Only
+
    glPushMatrix();
 
    int len = ctrlpts->size();
    glBegin(GL_LINE_STRIP);
-   // glColor3f(rand()/(1.0*RAND_MAX), rand()/(1.0*RAND_MAX), rand()/(1.0*RAND_MAX));
-   // glColor3f(250.0/256.0,232.0/256.0,192.0/256.0);
    glColor3f(1.0,0.0,0.0);
       GLfloat u,u_2,u_3,b[ CONTROL_POINTS ]; // 'b' stores the blending polynomials for bsplines
-      // int len = sizeof(ctrlpts)/sizeof(ctrlpts[0]);
-      // cout << len ;
       for(int point = 0; point<len-3; point++){
          GLfloat curveVertex[3];
-      
+         // interpolate bsplines
          for(float iter=0.0;iter<STEPS;iter+=1.0){
             u = iter/STEPS;
             u_2 = u*u;
@@ -678,7 +671,7 @@ void drawPath(vector< vector<GLfloat> > *ctrlpts){
    glPointSize(7.0);
    glColor3f(0.0, 1.0, 0.0);
    glBegin(GL_POINTS);
-   for (int i = 0; i < len; i++) {
+   for(int i = 0; i < len; i++){
       glVertex3fv(&ctrlpts->at(i).at(0));
    }
    glEnd();
@@ -687,8 +680,9 @@ void drawPath(vector< vector<GLfloat> > *ctrlpts){
 }
 
 void drawGolgi(){
+   // golgi is fixed and made completely as a texture inside a quad enclosure
    glPushMatrix();
-      // glColor3f(247.0/256.0,212.0/256.0,158.0/256.0);
+
       glTranslatef(-2.0,-2.5,0.25);
       glRotatef(135.0,0.0,0.0,1.0);
       glEnable(GL_TEXTURE_2D);
@@ -719,7 +713,7 @@ void display(void)
    
    glPushMatrix();
 
-   glScalef(scale.x,scale.y,scale.z);
+   glScalef(scale.x,scale.y,scale.z); // magnification from normal level to cell level
    drawCell(ctrlpoints,ctrlpoints->size());
    tLysosomeChange++;
    for(int i=0;i<primaryLysosome.size();i++){
@@ -729,11 +723,11 @@ void display(void)
       tLysosomeChange=0;
    }
    if(scale.x == scale.y && scale.x == 1.0){
-      // hide till the cell has expanded
+      // hide till magnified till cell level
       if(tLysosomeMove<=CAPSULE_DISAPPEAR){
          drawCapsule(capsule.capsuleCtrlPoints);
       }
-      
+      // for debugging purposes      
       // drawPath(capsule.capsulePathCtrlPoints);
    }
    for(int i=0;i<mitochondria.size();i++){
@@ -743,24 +737,6 @@ void display(void)
    glScalef(1.0/scale.x,1.0/scale.y,1.0/scale.z);
    glPopMatrix();
 
-   // glColor3f(1.0, 0.0, 0.0);
-   // glMap1f(GL_MAP1_VERTEX_3, 0.0, 1.0, 3, 3, &ctrlpoints[0][0]);
-   // glMapGrid1f(STEPS,0.0,1.0);
-   // glEvalMesh1(GL_LINE,0,STEPS);
-   // glColor3f(0.0, 1.0, 0.0);
-   // glMap1f(GL_MAP1_VERTEX_3, 0.0, 1.0, 3, 3, &ctrlpoints[2][0]);
-   // glMapGrid1f(STEPS,0.0,1.0);
-   // glEvalMesh1(GL_LINE,0,STEPS);
-   // glColor3f(0.0, 0.0, 1.0);
-   // glMap1f(GL_MAP1_VERTEX_3, 0.0, 1.0, 3, 3, &ctrlpoints[4][0]);
-   // glMapGrid1f(STEPS,0.0,1.0);
-   // glEvalMesh1(GL_LINE,0,STEPS);
-
-
-   // glBegin(GL_LINE_STRIP);
-   //    for (i = 0; i <= STEPS; i++) 
-   //       glEvalCoord1f((GLfloat) i/STEPS);
-   // glEnd();
    glutSwapBuffers();
    
 }
@@ -818,7 +794,7 @@ void timer(int id){
       getInterpolatedPointsForCurve(mitochondria.at(i).ctrlpoints, mitochondria.at(i).pointsNow, mitochondria.at(i).pointsLater);
    }
 
-   
+   // if magnification has reached cell level
    if(scale.x == scale.y && abs(scale.x-1.0) <= CELL_GROW_RATE){
       scale.x = 1.0;
       scale.y = scale.x;
@@ -841,7 +817,7 @@ void timer(int id){
          capsule.x = b[0]*capsule.capsulePathCtrlPoints->at(point).at(0) + b[1]*capsule.capsulePathCtrlPoints->at(point+1).at(0) + b[2]*capsule.capsulePathCtrlPoints->at(point+2).at(0) + b[3]*capsule.capsulePathCtrlPoints->at(point+3).at(0);
          capsule.y = b[0]*capsule.capsulePathCtrlPoints->at(point).at(1) + b[1]*capsule.capsulePathCtrlPoints->at(point+1).at(1) + b[2]*capsule.capsulePathCtrlPoints->at(point+2).at(1) + b[3]*capsule.capsulePathCtrlPoints->at(point+3).at(1);
          
-         // smooth rotation
+         // smooth rotation of capsule/food
          capsule.theta = CAPSULE_ROTATION_LAGRANGE * (tanh((capsule.y - old_y)/(capsule.x - old_x))*180.0/PI - 90.0) + (1- CAPSULE_ROTATION_LAGRANGE )*capsule.theta;
          
          tCapsule+=1.0/TCAPSULE_CHANGE_STEP;
@@ -863,15 +839,26 @@ void timer(int id){
       scale.y = scale.x; 
    }
    glutPostRedisplay();
-   glutTimerFunc(100,timer,5);
+   if(!pause){
+      // continue with the animation
+      glutTimerFunc(100,timer,5);
+   }
 }
 
 void keyboard(unsigned char key, int x, int y){
    switch(key) {
       case 's':
-         // starts the motion
-         timer(0);
+         // starts the animation
+         if(!flag){
+            pause = false;
+            flag = true;
+            timer(0);            
+         }
          break;
+      case 'p':
+         // pause the animation
+         pause = true;
+         flag = false;
       default:
          break;
    }
@@ -905,7 +892,7 @@ int main(int argc, char** argv)
    glutDisplayFunc(display);
    glutReshapeFunc(reshape);
    glutKeyboardFunc(keyboard);
-   // glutTimerFunc(100,timer,5);
+   // glutTimerFunc(100,timer,5); // enable this to start animation without pressing the key
    glutMainLoop();
    return 0;
 }
